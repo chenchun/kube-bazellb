@@ -1,7 +1,9 @@
+## Design
+
 - A LB defined as a static reachable address - VIP.
   - Built in HA. VIP is backended by at least two nodes
   - Quantify the power of a single LB. The performance differs on different NIC/machine. Report according to a test in reality
-  - Controllable traffic adjustment
+  - Controllable traffic adjustment
 - LB lives on kubelet machines as daemonset
   - Network and Computing interlace on kubelet
   - LB daemonset joins host network
@@ -10,7 +12,7 @@
   - L7 haproxy
 - An APP(deployment/stateful set) may become endpoints of multiple LBs
   - A DNS server replaces the position of a single static address
-  
+
 ```
    D   N   S        <- A single static domain address
  --||--\\--\\
@@ -25,7 +27,14 @@ Node1 Node2            Node1 Node2
    LB        Node1 down    LB
 ```
 
-Cotrollable traffice adjustment
+## Controllable traffic adjustment
+
+Full control of the traffic proportion during upgrade
+
+1. 100% -> v1
+1. 10% -> v2, 90% -> v1
+1. 50% -> v2, 50% -> v1
+1. 100% -> v2.
 
 ```
      L B
@@ -37,10 +46,4 @@ v1     v2
 p1 p2: pod based on image:v1, deployment v1
 p3 p4: pod based on image:v2, deployment v2
 
-Full control of the traffic proportion during upgrade
-
-1. 100% -> v1
-1. 10% -> v2, 90% -> v1
-1. 50% -> v2, 50% -> v1
-1. 100% -> v2.
 ```
