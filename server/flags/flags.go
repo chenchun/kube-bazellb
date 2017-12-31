@@ -26,7 +26,6 @@ func NewServerRunOptions() *ServerRunOptions {
 	return &ServerRunOptions{
 		Profiling: true,
 		Port:      9010,
-		Master:    "127.0.0.1:8080",
 	}
 }
 
