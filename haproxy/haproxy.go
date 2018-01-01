@@ -1,6 +1,7 @@
 package haproxy
 
 import (
+	"bytes"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -11,12 +12,14 @@ import (
 )
 
 type Haproxy struct {
-	ConfFile string
+	ConfFile   string
+	ConfigChan chan *bytes.Buffer
 }
 
 func NewHaproxy() *Haproxy {
 	return &Haproxy{
-		ConfFile: "/etc/haproxy/haproxy.cfg",
+		ConfFile:   "/etc/haproxy/haproxy.cfg",
+		ConfigChan: make(chan *bytes.Buffer),
 	}
 }
 
@@ -50,4 +53,13 @@ func (h *Haproxy) Start() error {
 	}
 	glog.Infof("haproxy started")
 	return nil
+}
+
+func (h *Haproxy) Run() {
+	select {
+	case buf := <-h.ConfigChan:
+		if err := ioutil.WriteFile(h.ConfFile, buf.Bytes(), 0644); err != nil {
+			fmt.Errorf("failed to write conf %s: %v", h.ConfFile, err)
+		}
+	}
 }

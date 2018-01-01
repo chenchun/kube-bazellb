@@ -25,8 +25,8 @@ listen stats
 
 func GetFrontendTemplate() string {
 	return `
-frontend {{.Name}}
-	bind	{{.IP}}:{{.Port}}
+frontend {{.Name}}{{range .Binds}}
+	bind	{{.IP}}:{{.Port}}{{end}}
 {{if ne .Mode ""}}	Mode	{{.Mode}}{{end}}
 	log	global
 	option	httplog
@@ -41,10 +41,14 @@ frontend {{.Name}}
 
 type Frontend struct {
 	Name           string
-	IP             string
-	Port           int
+	Binds          []Bind
 	Mode           string
 	DefaultBackend string
+}
+
+type Bind struct {
+	IP   string
+	Port int
 }
 
 type Backend struct {

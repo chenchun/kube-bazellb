@@ -11,8 +11,8 @@ import (
 )
 
 type EndpointsWatcher struct {
-	endpointsController cache.Controller
-	endpointsLister     cache.Indexer
+	EndpointsController cache.Controller
+	EndpointsLister     cache.Indexer
 	endpointsHandler    EndpointsHandler
 }
 
@@ -45,7 +45,7 @@ func (w *EndpointsWatcher) endpointsUpdateEventHandler(oldObj, newObj interface{
 }
 
 func (ew *EndpointsWatcher) List() []*v1.Endpoints {
-	obj_list := ew.endpointsLister.List()
+	obj_list := ew.EndpointsLister.List()
 	ep_instances := make([]*v1.Endpoints, len(obj_list))
 	for i, ins := range obj_list {
 		ep_instances[i] = ins.(*v1.Endpoints)
@@ -54,15 +54,15 @@ func (ew *EndpointsWatcher) List() []*v1.Endpoints {
 }
 
 func (ew *EndpointsWatcher) HasSynced() bool {
-	return ew.endpointsController.HasSynced()
+	return ew.EndpointsController.HasSynced()
 }
 
 var endpointsStopCh chan struct{}
 
 func StartEndpointsWatcher(clientset *kubernetes.Clientset, resyncPeriod time.Duration, h EndpointsHandler) *EndpointsWatcher {
 	ew := EndpointsWatcher{endpointsHandler: h}
-	lw := cache.NewListWatchFromClient(clientset.Core().RESTClient(), "endpoints", metav1.NamespaceAll, fields.Everything())
-	ew.endpointsLister, ew.endpointsController = cache.NewIndexerInformer(
+	lw := cache.NewListWatchFromClient(clientset.CoreV1().RESTClient(), "endpoints", metav1.NamespaceAll, fields.Everything())
+	ew.EndpointsLister, ew.EndpointsController = cache.NewIndexerInformer(
 		lw,
 		&v1.Endpoints{},
 		resyncPeriod,
@@ -74,7 +74,7 @@ func StartEndpointsWatcher(clientset *kubernetes.Clientset, resyncPeriod time.Du
 		cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc},
 	)
 	endpointsStopCh = make(chan struct{})
-	go ew.endpointsController.Run(endpointsStopCh)
+	go ew.EndpointsController.Run(endpointsStopCh)
 	return &ew
 }
 
