@@ -50,21 +50,24 @@ func (s *Server) Start() {
 }
 
 func (s *Server) startWatcher() {
-	if s.Master == "" && s.KubeConf == "" {
-		glog.Warning("Master/KubeConf both empty, won't connecting to kube-apiserver")
-		return
-	}
+	glog.Infof("connecting to kube-apiserver with master %q, kubeconf %q", s.Master, s.KubeConf)
 	clientConfig, err := clientcmd.BuildConfigFromFlags(s.Master, s.KubeConf)
 	if err != nil {
 		glog.Fatalf("Invalid client config: %v", err)
 	}
-	clientConfig.QPS = 1000.0
-	clientConfig.Burst = 2000
-	glog.Infof("QPS: %e, Burst: %d", clientConfig.QPS, clientConfig.Burst)
+	clientConfig.QPS = 1e6
+	clientConfig.Burst = 1e6
+
 	s.Client, err = kubernetes.NewForConfig(clientConfig)
 	if err != nil {
 		glog.Fatalf("Can not generate client from config: %v", err)
 	}
+	v, err := s.Client.Discovery().ServerVersion()
+	if err != nil {
+		glog.Fatal(err)
+	}
+	glog.Infof("Running in Kubernetes Cluster version v%v.%v (%v) - git (%v) commit %v - platform %v",
+		v.Major, v.Minor, v.GitVersion, v.GitTreeState, v.GitCommit, v.Platform)
 	s.serviceWatcher = watch.StartServiceWatcher(s.Client, 5*time.Minute, s)
 	s.endpointsWatcher = watch.StartEndpointsWatcher(s.Client, 5*time.Minute, s)
 }
