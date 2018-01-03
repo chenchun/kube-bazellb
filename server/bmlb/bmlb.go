@@ -7,12 +7,14 @@ import (
 	"time"
 
 	"github.com/chenchun/kube-bmlb/haproxy"
+	"github.com/chenchun/kube-bmlb/haproxy/adaptor"
 	"github.com/chenchun/kube-bmlb/server/flags"
 	"github.com/chenchun/kube-bmlb/watch"
 	"github.com/golang/glog"
 	"github.com/spf13/pflag"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/kubernetes/pkg/util/wait"
 )
 
 type Server struct {
@@ -21,12 +23,15 @@ type Server struct {
 	endpointsWatcher *watch.EndpointsWatcher
 	Client           *kubernetes.Clientset
 	haproxy          *haproxy.Haproxy
+	adaptor          *adaptor.HAProxyAdaptor
+	hasSynced        bool
 }
 
 func NewServer() *Server {
 	return &Server{
 		ServerRunOptions: flags.NewServerRunOptions(),
 		haproxy:          haproxy.NewHaproxy(),
+		adaptor:          adaptor.NewHAProxyAdaptor(),
 	}
 }
 
@@ -41,10 +46,9 @@ func (s *Server) Init() {}
 func (s *Server) Start() {
 	s.Init()
 	s.startWatcher()
-	if err := s.haproxy.Start(); err != nil {
-		glog.Fatalf("failed to start haproxy: %v", err)
-	}
-	if err := s.startServer(); err != nil {
+	go s.haproxy.Run()
+	wait.Forever(s.syncing, time.Hour)
+	if err := s.launchServer(); err != nil {
 		glog.Fatalf("failed to start server: %v", err)
 	}
 }
@@ -72,7 +76,17 @@ func (s *Server) startWatcher() {
 	s.endpointsWatcher = watch.StartEndpointsWatcher(s.Client, 5*time.Minute, s)
 }
 
-func (s *Server) startServer() error {
+func (s *Server) launchServer() error {
 	glog.Infof("starting http server")
 	return http.ListenAndServe(fmt.Sprintf(":%d", s.Port), nil)
+}
+
+func (s *Server) syncing() {
+	if !s.hasSynced && (!s.serviceWatcher.HasSynced() || !s.endpointsWatcher.HasSynced()) {
+		glog.V(3).Infof("waiting for syncing service/endpoints")
+		return
+	}
+	buf := s.adaptor.Build(s.serviceWatcher.List(), s.endpointsWatcher.List())
+	s.haproxy.ConfigChan <- buf
+	s.hasSynced = true
 }
