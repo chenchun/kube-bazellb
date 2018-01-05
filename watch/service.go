@@ -21,12 +21,18 @@ func (w *ServiceWatcher) serviceAddEventHandler(obj interface{}) {
 	if !ok {
 		return
 	}
+	if service.Spec.Type != v1.ServiceTypeLoadBalancer {
+		return
+	}
 	w.eventHandler.AddService(service)
 }
 
 func (w *ServiceWatcher) serviceDeleteEventHandler(obj interface{}) {
 	service, ok := obj.(*v1.Service)
 	if !ok {
+		return
+	}
+	if service.Spec.Type != v1.ServiceTypeLoadBalancer {
 		return
 	}
 	w.eventHandler.DeleteService(service)
@@ -39,6 +45,9 @@ func (w *ServiceWatcher) serviceUpdateEventHandler(oldObj, newObj interface{}) {
 	}
 	oldService, ok := oldObj.(*v1.Service)
 	if !ok {
+		return
+	}
+	if service.Spec.Type != v1.ServiceTypeLoadBalancer {
 		return
 	}
 	w.eventHandler.UpdateService(oldService, service)
@@ -61,7 +70,7 @@ var servicesStopCh chan struct{}
 
 func StartServiceWatcher(client *kubernetes.Clientset, resyncPeriod time.Duration, sh ServiceHandler) *ServiceWatcher {
 	w := ServiceWatcher{eventHandler: sh}
-	lw := cache.NewListWatchFromClient(client.CoreV1().RESTClient(), "services", metav1.NamespaceAll, fields.OneTermEqualSelector("spec.type", "LoadBalancer"))
+	lw := cache.NewListWatchFromClient(client.CoreV1().RESTClient(), "services", metav1.NamespaceAll, fields.Everything())
 	w.ServiceLister, w.ServiceController = cache.NewIndexerInformer(
 		lw,
 		&v1.Service{},
