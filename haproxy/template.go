@@ -60,6 +60,7 @@ type Backend struct {
 type Server struct {
 	Name string
 	IP   string
+	Port int
 }
 
 func GetBackendTemplate() string {
@@ -70,6 +71,6 @@ backend {{.Name}}{{if ne .Mode ""}}
 	timeout	server	5s
 	retries	2
 	balance	roundrobin{{range .Servers}}
-	server	{{.Name}}	{{.IP}}	check{{end}}
+	server	{{.Name}}	{{.IP}}:{{.Port}}	check{{end}}
 `
 }

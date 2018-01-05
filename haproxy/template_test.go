@@ -14,8 +14,8 @@ func TestGetBackendTemplate(t *testing.T) {
 		Name: "test-proxy-srv",
 		Mode: "http",
 		Servers: []Server{
-			{Name: "pod1", IP: "10.0.0.1"},
-			{Name: "pod2", IP: "10.0.0.2"},
+			{Name: "pod1", IP: "10.0.0.1", Port: 80},
+			{Name: "pod2", IP: "10.0.0.2", Port: 80},
 		},
 	}
 	buf := &bytes.Buffer{}
@@ -27,7 +27,7 @@ backend test-proxy-srv
 	timeout	server	5s
 	retries	2
 	balance	roundrobin
-	server	pod1	10.0.0.1	check
-	server	pod2	10.0.0.2	check
+	server	pod1	10.0.0.1:80	check
+	server	pod2	10.0.0.2:80	check
 `, buf.String())
 }

@@ -4,17 +4,21 @@ import (
 	"fmt"
 	"net/http"
 	_ "net/http/pprof"
+	"strconv"
 	"time"
 
+	"github.com/chenchun/kube-bmlb/api"
 	"github.com/chenchun/kube-bmlb/haproxy"
 	"github.com/chenchun/kube-bmlb/haproxy/adaptor"
+	"github.com/chenchun/kube-bmlb/port"
 	"github.com/chenchun/kube-bmlb/server/flags"
 	"github.com/chenchun/kube-bmlb/watch"
 	"github.com/golang/glog"
 	"github.com/spf13/pflag"
+	"k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/kubernetes/pkg/util/wait"
 )
 
 type Server struct {
@@ -24,7 +28,8 @@ type Server struct {
 	Client           *kubernetes.Clientset
 	haproxy          *haproxy.Haproxy
 	adaptor          *adaptor.HAProxyAdaptor
-	hasSynced        bool
+	syncChan         chan struct{}
+	portAllocator    *port.PortAllocator
 }
 
 func NewServer() *Server {
@@ -32,6 +37,7 @@ func NewServer() *Server {
 		ServerRunOptions: flags.NewServerRunOptions(),
 		haproxy:          haproxy.NewHaproxy(),
 		adaptor:          adaptor.NewHAProxyAdaptor(),
+		portAllocator:    port.NewPortAllocator(29000, 29999),
 	}
 }
 
@@ -47,7 +53,7 @@ func (s *Server) Start() {
 	s.Init()
 	s.startWatcher()
 	go s.haproxy.Run()
-	wait.Forever(s.syncing, time.Hour)
+	go s.syncing()
 	if err := s.launchServer(); err != nil {
 		glog.Fatalf("failed to start server: %v", err)
 	}
@@ -82,11 +88,49 @@ func (s *Server) launchServer() error {
 }
 
 func (s *Server) syncing() {
-	if !s.hasSynced && (!s.serviceWatcher.HasSynced() || !s.endpointsWatcher.HasSynced()) {
+	wait.PollInfinite(time.Second, func() (done bool, err error) {
 		glog.V(3).Infof("waiting for syncing service/endpoints")
-		return
+		return s.serviceWatcher.HasSynced() && s.endpointsWatcher.HasSynced(), nil
+	})
+	s.syncChan = make(chan struct{})
+	tick := time.Tick(10 * time.Minute)
+	for {
+		select {
+		case <-s.syncChan:
+		case <-tick:
+		}
+		filtered, needsUpdateSvc := s.filterAndAllocatePorts(s.serviceWatcher.List())
+		buf := s.adaptor.Build(filtered, s.endpointsWatcher.List())
+		s.haproxy.ConfigChan <- buf
+		s.updateSvcs(needsUpdateSvc)
 	}
-	buf := s.adaptor.Build(s.serviceWatcher.List(), s.endpointsWatcher.List())
-	s.haproxy.ConfigChan <- buf
-	s.hasSynced = true
+}
+
+func (s *Server) filterAndAllocatePorts(svcs []*v1.Service) ([]*v1.Service, map[string]*v1.Service) {
+	var filtered []*v1.Service
+	needsUpdateSvc := map[string]*v1.Service{}
+	for i := range svcs {
+		svc := svcs[i]
+		if svc.Spec.Type != v1.ServiceTypeLoadBalancer {
+			continue
+		}
+		if svc.Annotations == nil {
+			svc.Annotations = map[string]string{}
+		}
+		if portStr, exist := svc.Annotations[api.ANNOTATION_KEY_PORT]; !exist {
+			allocated := make([]string, len(svc.Spec.Ports))
+			for j := range svc.Spec.Ports {
+				allocated[j] = strconv.Itoa(int(s.portAllocator.Allocate()))
+			}
+			svc.Annotations[api.ANNOTATION_KEY_PORT] = api.EncodeL4Ports(allocated)
+			needsUpdateSvc[serviceKey(svc)] = svc
+		} else {
+			ports := api.DecodeL4Ports(portStr)
+			for j := range ports {
+				s.portAllocator.Allocated(uint(ports[j]))
+			}
+		}
+		filtered = append(filtered, svc)
+	}
+	return filtered, needsUpdateSvc
 }

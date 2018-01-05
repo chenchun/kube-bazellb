@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"text/template"
 
+	"github.com/chenchun/kube-bmlb/api"
 	"github.com/chenchun/kube-bmlb/haproxy"
 	"k8s.io/api/core/v1"
 )
@@ -46,9 +47,10 @@ func (a *HAProxyAdaptor) Build(lbSvcs []*v1.Service, endpoints []*v1.Endpoints) 
 	for i := range lbSvcs {
 		svc := lbSvcs[i]
 		var binds []haproxy.Bind
+		lbPorts := api.DecodeL4Ports(svc.Annotations[api.ANNOTATION_KEY_PORT])
 		for j := range svc.Spec.Ports {
 			//TODO concrete the IP once we defined HA
-			binds = append(binds, haproxy.Bind{IP: "0.0.0.0", Port: int(svc.Spec.Ports[j].NodePort)})
+			binds = append(binds, haproxy.Bind{IP: "0.0.0.0", Port: lbPorts[j]})
 		}
 		a.frontTplt.Execute(buf, haproxy.Frontend{
 			Name:           svc.Name,
@@ -65,10 +67,13 @@ func (a *HAProxyAdaptor) Build(lbSvcs []*v1.Service, endpoints []*v1.Endpoints) 
 			for k := range edpt.Subsets {
 				subset := edpt.Subsets[k]
 				for m := range subset.Addresses {
-					servers = append(servers, haproxy.Server{
-						Name: fmt.Sprintf("%s-%d", svc.Name, len(servers)),
-						IP:   subset.Addresses[m].IP,
-					})
+					for k := range subset.Ports {
+						servers = append(servers, haproxy.Server{
+							Name: fmt.Sprintf("%s-%d", svc.Name, len(servers)),
+							IP:   subset.Addresses[m].IP,
+							Port: int(subset.Ports[k].Port),
+						})
+					}
 				}
 			}
 		}
