@@ -37,6 +37,9 @@ func (w *EndpointsWatcher) endpointsUpdateEventHandler(oldObj, newObj interface{
 	if !ok {
 		return
 	}
+	if endpoints.Namespace == "kube-system" {
+		return
+	}
 	oldEndpoints, ok := oldObj.(*v1.Endpoints)
 	if !ok {
 		return
@@ -44,8 +47,8 @@ func (w *EndpointsWatcher) endpointsUpdateEventHandler(oldObj, newObj interface{
 	w.endpointsHandler.UpdateEndpoints(oldEndpoints, endpoints)
 }
 
-func (ew *EndpointsWatcher) List() []*v1.Endpoints {
-	obj_list := ew.EndpointsLister.List()
+func (w *EndpointsWatcher) List() []*v1.Endpoints {
+	obj_list := w.EndpointsLister.List()
 	ep_instances := make([]*v1.Endpoints, len(obj_list))
 	for i, ins := range obj_list {
 		ep_instances[i] = ins.(*v1.Endpoints)

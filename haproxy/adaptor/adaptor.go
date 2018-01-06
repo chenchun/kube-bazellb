@@ -67,11 +67,11 @@ func (a *HAProxyAdaptor) Build(lbSvcs []*v1.Service, endpoints []*v1.Endpoints) 
 			for k := range edpt.Subsets {
 				subset := edpt.Subsets[k]
 				for m := range subset.Addresses {
-					for k := range subset.Ports {
+					for n := range subset.Ports {
 						servers = append(servers, haproxy.Server{
 							Name: fmt.Sprintf("%s-%d", svc.Name, len(servers)),
 							IP:   subset.Addresses[m].IP,
-							Port: int(subset.Ports[k].Port),
+							Port: int(subset.Ports[n].Port),
 						})
 					}
 				}

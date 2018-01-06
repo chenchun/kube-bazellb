@@ -16,6 +16,7 @@ import (
 )
 
 func (s *Server) AddService(svc *v1.Service) {
+	glog.V(5).Infof("add svc %s", serviceKey(svc))
 	s.maybeSync()
 }
 
@@ -23,6 +24,7 @@ func (s *Server) UpdateService(oldSvc, newSvc *v1.Service) {
 	if s.skipServiceUpdate(oldSvc, newSvc) {
 		return
 	}
+	glog.V(5).Infof("update svc %s", serviceKey(newSvc))
 	s.maybeSync()
 }
 
@@ -31,18 +33,22 @@ func (s *Server) DeleteService(svc *v1.Service) {
 	for i := range ports {
 		s.portAllocator.Revoke(uint(ports[i]))
 	}
+	glog.V(5).Infof("delete svc %s", serviceKey(svc))
 	s.maybeSync()
 }
 
 func (s *Server) AddEndpoints(ep *v1.Endpoints) {
+	glog.V(5).Infof("add endpoints %s", ep.Name)
 	s.maybeSync()
 }
 
-func (s *Server) UpdateEndpoints(oldSvc, newSvc *v1.Endpoints) {
+func (s *Server) UpdateEndpoints(oldEp, newEp *v1.Endpoints) {
+	glog.V(5).Infof("update endpoints %s", newEp.Name)
 	s.maybeSync()
 }
 
 func (s *Server) DeleteEndpoints(ep *v1.Endpoints) {
+	glog.V(5).Infof("delete endpoints %s", ep.Name)
 	s.maybeSync()
 }
 
