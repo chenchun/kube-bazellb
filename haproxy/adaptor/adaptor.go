@@ -46,6 +46,10 @@ func (a *HAProxyAdaptor) Build(lbSvcs []*v1.Service, endpoints []*v1.Endpoints) 
 	}
 	for i := range lbSvcs {
 		svc := lbSvcs[i]
+		endpoints := endpointsMap[svc.Namespace][svc.Name]
+		if len(endpoints) == 0 {
+			continue
+		}
 		var binds []haproxy.Bind
 		lbPorts := api.DecodeL4Ports(svc.Annotations[api.ANNOTATION_KEY_PORT])
 		for j := range svc.Spec.Ports {
@@ -57,10 +61,6 @@ func (a *HAProxyAdaptor) Build(lbSvcs []*v1.Service, endpoints []*v1.Endpoints) 
 			Binds:          binds,
 			DefaultBackend: svc.Name,
 		})
-		endpoints := endpointsMap[svc.Namespace][svc.Name]
-		if len(endpoints) == 0 {
-			continue
-		}
 		var servers []haproxy.Server
 		for j := range endpoints {
 			edpt := endpoints[j]

@@ -78,8 +78,8 @@ func (s *Server) startWatcher() {
 	}
 	glog.Infof("Running in Kubernetes Cluster version v%v.%v (%v) - git (%v) commit %v - platform %v",
 		v.Major, v.Minor, v.GitVersion, v.GitTreeState, v.GitCommit, v.Platform)
-	s.serviceWatcher = watch.StartServiceWatcher(s.Client, 5*time.Minute, s)
-	s.endpointsWatcher = watch.StartEndpointsWatcher(s.Client, 5*time.Minute, s)
+	s.serviceWatcher = watch.StartServiceWatcher(s.Client, 0, s)
+	s.endpointsWatcher = watch.StartEndpointsWatcher(s.Client, 0, s)
 }
 
 func (s *Server) launchServer() error {
@@ -92,8 +92,9 @@ func (s *Server) syncing() {
 		glog.V(3).Infof("waiting for syncing service/endpoints")
 		return s.serviceWatcher.HasSynced() && s.endpointsWatcher.HasSynced(), nil
 	})
-	s.syncChan = make(chan struct{})
-	tick := time.Tick(10 * time.Minute)
+	s.syncChan = make(chan struct{}, 2)
+	s.syncChan <- struct{}{}
+	tick := time.Tick(time.Minute)
 	for {
 		select {
 		case <-s.syncChan:
@@ -109,6 +110,25 @@ func (s *Server) syncing() {
 func (s *Server) filterAndAllocatePorts(svcs []*v1.Service) ([]*v1.Service, map[string]*v1.Service) {
 	var filtered []*v1.Service
 	needsUpdateSvc := map[string]*v1.Service{}
+	// Mark ports in annotation as allocated
+	for i := range svcs {
+		svc := svcs[i]
+		if svc.Spec.Type != v1.ServiceTypeLoadBalancer {
+			continue
+		}
+		filtered = append(filtered, svc)
+		if svc.Annotations == nil {
+			continue
+		}
+		if portStr, exist := svc.Annotations[api.ANNOTATION_KEY_PORT]; exist {
+			ports := api.DecodeL4Ports(portStr)
+			for j := range ports {
+				glog.V(5).Infof("port %d allocated for svc %s", ports[j], objectKey(&svc.ObjectMeta))
+				s.portAllocator.Allocated(uint(ports[j]))
+			}
+		}
+	}
+	// Allocate ports for svcs that do not have the port annotation
 	for i := range svcs {
 		svc := svcs[i]
 		if svc.Spec.Type != v1.ServiceTypeLoadBalancer {
@@ -117,20 +137,15 @@ func (s *Server) filterAndAllocatePorts(svcs []*v1.Service) ([]*v1.Service, map[
 		if svc.Annotations == nil {
 			svc.Annotations = map[string]string{}
 		}
-		if portStr, exist := svc.Annotations[api.ANNOTATION_KEY_PORT]; !exist {
+		if _, exist := svc.Annotations[api.ANNOTATION_KEY_PORT]; !exist {
 			allocated := make([]string, len(svc.Spec.Ports))
 			for j := range svc.Spec.Ports {
 				allocated[j] = strconv.Itoa(int(s.portAllocator.Allocate()))
+				glog.V(5).Infof("port %d allocated for svc %s", allocated[j], objectKey(&svc.ObjectMeta))
 			}
 			svc.Annotations[api.ANNOTATION_KEY_PORT] = api.EncodeL4Ports(allocated)
-			needsUpdateSvc[serviceKey(svc)] = svc
-		} else {
-			ports := api.DecodeL4Ports(portStr)
-			for j := range ports {
-				s.portAllocator.Allocated(uint(ports[j]))
-			}
+			needsUpdateSvc[objectKey(&svc.ObjectMeta)] = svc
 		}
-		filtered = append(filtered, svc)
 	}
 	return filtered, needsUpdateSvc
 }
