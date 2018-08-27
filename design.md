@@ -47,3 +47,15 @@ p1 p2: pod based on image:v1, deployment v1
 p3 p4: pod based on image:v2, deployment v2
 
 ```
+
+## The goal
+
+- inside cluster traffic to services which is in the same cluster
+- outside cluster traffic to services in cluster
+
+The first traffic doesn't require creating iptables rules on all nodes like kube-proxy. 
+We will implement such things inside container like istio.
+
+For the second traffic, we don't have a bare metal usable load balance. Nodeport service is not a HA solution.
+
+For both of them, we need a controllable traffic adjustment function.

@@ -14,6 +14,6 @@ ENV PATH $GOPATH/bin:/usr/local/go/bin:$PATH
 RUN mkdir -p "$GOPATH/src" "$GOPATH/bin" && chmod -R 777 "$GOPATH"
 WORKDIR $GOPATH
 
-RUN go get /go/src/github.com/chenchun/kube-bmlb
+RUN go get github.com/chenchun/kube-bmlb/cmd/bmlb
 EXPOSE 80 8081 9010
 CMD ["kube-bmlb", "--logtostderr"]
