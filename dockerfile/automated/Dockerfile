@@ -8,6 +8,7 @@ RUN set -eux; \
 		gcc \
 		musl-dev \
 		openssl \
+		git \
 		go
 ENV GOPATH /go
 ENV PATH $GOPATH/bin:/usr/local/go/bin:$PATH
