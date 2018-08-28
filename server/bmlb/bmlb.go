@@ -108,6 +108,7 @@ func (s *Server) syncing() {
 }
 
 func (s *Server) filterAndAllocatePorts(svcs []*v1.Service) ([]*v1.Service, map[string]*v1.Service) {
+	//TODO support updating services which may add or del ports
 	var filtered []*v1.Service
 	needsUpdateSvc := map[string]*v1.Service{}
 	// Mark ports in annotation as allocated

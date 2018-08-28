@@ -1,0 +1,1 @@
+This package and testing package are copied from kubernetes repo in order to not vendoring kubernetes repo which is very slow for glide

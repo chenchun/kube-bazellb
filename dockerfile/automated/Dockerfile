@@ -9,6 +9,7 @@ RUN set -eux; \
 		musl-dev \
 		openssl \
 		git \
+		curl \
 		go
 ENV GOPATH /go
 ENV PATH $GOPATH/bin:/usr/local/go/bin:$PATH
@@ -16,5 +17,5 @@ RUN mkdir -p "$GOPATH/src" "$GOPATH/bin" && chmod -R 777 "$GOPATH"
 WORKDIR $GOPATH
 
 RUN go get github.com/chenchun/kube-bmlb/cmd/bmlb
-EXPOSE 80 8081 9010
-CMD ["kube-bmlb", "--logtostderr"]
+EXPOSE 80 9010
+CMD ["bmlb", "--logtostderr"]

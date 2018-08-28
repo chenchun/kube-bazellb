@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: kube-bmlb
+  namespace: kube-system
+  labels:
+    app: kube-bmlb
+spec:
+  selector:
+    matchLabels:
+      name: kube-bmlb
+  template:
+    metadata:
+      labels:
+        name: kube-bmlb
+    spec:
+      hostNetwork: true
+      tolerations:
+      - key: node-role.kubernetes.io/master
+        effect: NoSchedule
+      containers:
+      - name: kube-bmlb
+        image: chenchun/kube-bmlb
+        command: ["bmlb"]
+        args: ["--logtostderr", "-v=4"]
+        resources:
+          limits:
+            memory: 100Mi
+          requests:
+            cpu: 100m
+            memory: 50Mi
+        ports:
+        - containerPort: 80
+          hostPort: 80
+        - containerPort: 9010
+          hostPort: 9010

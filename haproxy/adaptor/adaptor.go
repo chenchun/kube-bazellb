@@ -62,10 +62,8 @@ func (a *HAProxyAdaptor) Build(lbSvcs []*v1.Service, endpoints []*v1.Endpoints) 
 			DefaultBackend: svc.Name,
 		})
 		var servers []haproxy.Server
-		for j := range endpoints {
-			edpt := endpoints[j]
-			for k := range edpt.Subsets {
-				subset := edpt.Subsets[k]
+		for _, edpt := range endpoints {
+			for _, subset := range edpt.Subsets {
 				for m := range subset.Addresses {
 					for n := range subset.Ports {
 						servers = append(servers, haproxy.Server{

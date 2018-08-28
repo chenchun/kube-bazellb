@@ -1,26 +1,18 @@
 package lvs
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"github.com/golang/glog"
 	"net"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
 
-	lnipvs "github.com/docker/libnetwork/ipvs"
+	"github.com/docker/libnetwork/ipvs"
 )
-
-type LVS struct {
-	Interface
-}
-
-func NewLVS() *LVS {
-	return &LVS{
-		Interface: New(),
-	}
-}
 
 // Interface is an injectable interface for running ipvs commands.  Implementations must be goroutine-safe.
 type Interface interface {
@@ -100,12 +92,12 @@ func (rs *RealServer) Equal(other *RealServer) bool {
 
 // runner implements Interface.
 type runner struct {
-	ipvsHandle *lnipvs.Handle
+	ipvsHandle *ipvs.Handle
 }
 
 // New returns a new Interface which will call ipvs APIs.
 func New() Interface {
-	ihandle, err := lnipvs.New("")
+	ihandle, err := ipvs.New("")
 	if err != nil {
 		glog.Errorf("IPVS interface can't be initialized, error: %v", err)
 		return nil
@@ -121,6 +113,7 @@ func (runner *runner) AddVirtualServer(vs *VirtualServer) error {
 	if err != nil {
 		return err
 	}
+	glog.V(5).Infof("AddVirtualServer vs %s", vs.String())
 	return runner.ipvsHandle.NewService(eSvc)
 }
 
@@ -139,6 +132,7 @@ func (runner *runner) DeleteVirtualServer(vs *VirtualServer) error {
 	if err != nil {
 		return err
 	}
+	glog.V(5).Infof("DeleteVirtualServer vs %s", vs.String())
 	return runner.ipvsHandle.DelService(bSvc)
 }
 
@@ -191,6 +185,7 @@ func (runner *runner) AddRealServer(vs *VirtualServer, rs *RealServer) error {
 	if err != nil {
 		return err
 	}
+	glog.V(5).Infof("AddRealServer vs %s rs %s", vs.String(), rs.String())
 	return runner.ipvsHandle.NewDestination(bSvc, bDst)
 }
 
@@ -204,6 +199,7 @@ func (runner *runner) DeleteRealServer(vs *VirtualServer, rs *RealServer) error 
 	if err != nil {
 		return err
 	}
+	glog.V(5).Infof("DeleteRealServer vs %s rs %s", vs.String(), rs.String())
 	return runner.ipvsHandle.DelDestination(bSvc, bDst)
 }
 
@@ -230,7 +226,7 @@ func (runner *runner) GetRealServers(vs *VirtualServer) ([]*RealServer, error) {
 }
 
 // toVirtualServer converts an IPVS service representation to the equivalent virtual server structure.
-func toVirtualServer(svc *lnipvs.Service) (*VirtualServer, error) {
+func toVirtualServer(svc *ipvs.Service) (*VirtualServer, error) {
 	if svc == nil {
 		return nil, errors.New("ipvs svc should not be empty")
 	}
@@ -261,7 +257,7 @@ func toVirtualServer(svc *lnipvs.Service) (*VirtualServer, error) {
 }
 
 // toRealServer converts an IPVS destination representation to the equivalent real server structure.
-func toRealServer(dst *lnipvs.Destination) (*RealServer, error) {
+func toRealServer(dst *ipvs.Destination) (*RealServer, error) {
 	if dst == nil {
 		return nil, errors.New("ipvs destination should not be empty")
 	}
@@ -273,11 +269,11 @@ func toRealServer(dst *lnipvs.Destination) (*RealServer, error) {
 }
 
 // toBackendService converts an IPVS real server representation to the equivalent "backend" service structure.
-func toBackendService(vs *VirtualServer) (*lnipvs.Service, error) {
+func toBackendService(vs *VirtualServer) (*ipvs.Service, error) {
 	if vs == nil {
 		return nil, errors.New("virtual server should not be empty")
 	}
-	bakSvc := &lnipvs.Service{
+	bakSvc := &ipvs.Service{
 		Address:   vs.Address,
 		Protocol:  stringToProtocolNumber(vs.Protocol),
 		Port:      vs.Port,
@@ -297,11 +293,11 @@ func toBackendService(vs *VirtualServer) (*lnipvs.Service, error) {
 }
 
 // toBackendDestination converts an IPVS real server representation to the equivalent "backend" destination structure.
-func toBackendDestination(rs *RealServer) (*lnipvs.Destination, error) {
+func toBackendDestination(rs *RealServer) (*ipvs.Destination, error) {
 	if rs == nil {
 		return nil, errors.New("real server should not be empty")
 	}
-	return &lnipvs.Destination{
+	return &ipvs.Destination{
 		Address: rs.Address,
 		Port:    rs.Port,
 		Weight:  rs.Weight,
@@ -332,3 +328,41 @@ func protocolNumbeToString(proto ProtoType) string {
 
 // ProtoType is IPVS service protocol type
 type ProtoType uint16
+
+func Dump(i Interface) (string, error) {
+	buf := bytes.NewBuffer(nil)
+	vss, err := i.GetVirtualServers()
+	if err != nil {
+		return "", err
+	}
+	vsMap := map[string]*VirtualServer{}
+	vsStrs := make([]string, len(vss))
+	for i, vs := range vss {
+		vsMap[vs.String()] = vs
+		vsStrs[i] = vs.String()
+	}
+	sort.Strings(vsStrs)
+	for _, vsStr := range vsStrs {
+		vs := vsMap[vsStr]
+		buf.WriteString(vs.String())
+		buf.WriteByte('\n')
+		rss, err := i.GetRealServers(vs)
+		if err != nil {
+			return "", err
+		}
+		rsStrs := make([]string, len(rss))
+		for i, rs := range rss {
+			rsStrs[i] = rs.String()
+		}
+		sort.Strings(rsStrs)
+		for _, str := range rsStrs {
+			buf.WriteString(fmt.Sprintf("  -> %s", str))
+			buf.WriteByte('\n')
+		}
+		buf.WriteByte('\n')
+	}
+	if buf.Len() > 0 {
+		buf.Truncate(buf.Len() - 1)
+	}
+	return buf.String(), nil
+}
