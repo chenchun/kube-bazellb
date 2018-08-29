@@ -1,6 +1,7 @@
 package adaptor
 
 import (
+	"bytes"
 	"net"
 	"strconv"
 	"testing"
@@ -8,6 +9,9 @@ import (
 	"github.com/chenchun/kube-bmlb/api"
 	"github.com/chenchun/kube-bmlb/lvs"
 	lvstesting "github.com/chenchun/kube-bmlb/lvs/testing"
+	ipsettesting "github.com/chenchun/kube-bmlb/utils/ipset/testing"
+	"github.com/chenchun/kube-bmlb/utils/iptables"
+	ipttesting "github.com/chenchun/kube-bmlb/utils/iptables/testing"
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -59,7 +63,7 @@ func TestBuild(t *testing.T) {
 		endpoint("s2", rsAddr1.String(), 9000),
 		endpoint("s2", rsAddr2.String(), 9001),
 	}
-	a := &LVSAdaptor{lvsHandler: fake, virtualServerAddress: vsAddr}
+	a := &LVSAdaptor{lvsHandler: fake, virtualServerAddress: vsAddr, iptHandler: ipttesting.NewFakeIPTables(), ipsetHandler: ipsettesting.NewFake("")}
 	a.Build(services, endpoints, false)
 	str, err = lvs.Dump(fake)
 	if err != nil {
@@ -97,6 +101,38 @@ func TestBuild(t *testing.T) {
   -> 192.168.0.3:9001
 ` {
 		t.Fatal(str)
+	}
+
+	// check iptables and ipset
+	buf := bytes.NewBuffer(nil)
+	if err := a.iptHandler.SaveInto(iptables.TableNAT, buf); err != nil {
+		t.Fatal(err)
+	} else {
+		if buf.String() != `*nat
+:INPUT - [0:0]
+:OUTPUT - [0:0]
+:POSTROUTING - [0:0]
+:PREROUTING - [0:0]
+-A OUTPUT -p all -m set --match-set bmlb-vip-vport dst,dst -j MARK --set-xmark 0x4000/0x4000
+-A POSTROUTING -m mark --mark 0x4000/0x4000 -j MASQUERADE
+-A PREROUTING -p all -m set --match-set bmlb-vip-vport dst,dst -j MARK --set-xmark 0x4000/0x4000
+COMMIT
+` {
+			t.Fatal(buf.String())
+		}
+	}
+	if data, err := a.ipsetHandler.SaveAllSets(); err != nil {
+		t.Fatal(err)
+	} else {
+		if string(data) != `Name: bmlb-vip-vport
+Type: hash:ip,port
+Members:
+10.0.0.2,tcp:70
+10.0.0.2,tcp:80
+10.0.0.2,udp:8080
+` {
+			t.Fatal(string(data))
+		}
 	}
 }
 

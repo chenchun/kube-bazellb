@@ -329,9 +329,9 @@ func protocolNumbeToString(proto ProtoType) string {
 // ProtoType is IPVS service protocol type
 type ProtoType uint16
 
-func Dump(i Interface) (string, error) {
+func Dump(iface Interface) (string, error) {
 	buf := bytes.NewBuffer(nil)
-	vss, err := i.GetVirtualServers()
+	vss, err := iface.GetVirtualServers()
 	if err != nil {
 		return "", err
 	}
@@ -342,11 +342,12 @@ func Dump(i Interface) (string, error) {
 		vsStrs[i] = vs.String()
 	}
 	sort.Strings(vsStrs)
-	for _, vsStr := range vsStrs {
+	for i := range vsStrs {
+		vsStr := vsStrs[i]
 		vs := vsMap[vsStr]
 		buf.WriteString(vs.String())
 		buf.WriteByte('\n')
-		rss, err := i.GetRealServers(vs)
+		rss, err := iface.GetRealServers(vs)
 		if err != nil {
 			return "", err
 		}

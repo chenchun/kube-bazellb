@@ -22,6 +22,7 @@ import (
 	"strconv"
 
 	utilipvs "github.com/chenchun/kube-bmlb/lvs"
+	"github.com/golang/glog"
 )
 
 //FakeIPVS no-op implementation of ipvs Interface
@@ -78,6 +79,7 @@ func (f *FakeIPVS) AddVirtualServer(serv *utilipvs.VirtualServer) error {
 	if serv == nil {
 		return fmt.Errorf("Failed to add virtual server, error: virtual server can't be nil")
 	}
+	glog.V(5).Infof("AddVirtualServer vs %s", serv.String())
 	key := toServiceKey(serv)
 	f.Services[key] = serv
 	// make sure no destination present when creating new service
@@ -100,6 +102,7 @@ func (f *FakeIPVS) DeleteVirtualServer(serv *utilipvs.VirtualServer) error {
 	if serv == nil {
 		return fmt.Errorf("Failed to delete service: service can't be nil")
 	}
+	glog.V(5).Infof("DeleteVirtualServer vs %s", serv.String())
 	key := toServiceKey(serv)
 	delete(f.Services, key)
 	// clear specific destinations as well
@@ -142,6 +145,7 @@ func (f *FakeIPVS) AddRealServer(serv *utilipvs.VirtualServer, dest *utilipvs.Re
 	if serv == nil || dest == nil {
 		return fmt.Errorf("Failed to add destination for service, neither service nor destination shouldn't be nil")
 	}
+	glog.V(5).Infof("AddRealServer vs %s rs %s", serv.String(), dest.String())
 	key := toServiceKey(serv)
 	if _, ok := f.Services[key]; !ok {
 		return fmt.Errorf("Failed to add destination for service %v, service not found", key.String())
@@ -172,6 +176,7 @@ func (f *FakeIPVS) DeleteRealServer(serv *utilipvs.VirtualServer, dest *utilipvs
 	if serv == nil || dest == nil {
 		return fmt.Errorf("Failed to delete destination, neither service nor destination can't be nil")
 	}
+	glog.V(5).Infof("DeleteRealServer vs %s rs %s", serv.String(), dest.String())
 	key := toServiceKey(serv)
 	if _, ok := f.Services[key]; !ok {
 		return fmt.Errorf("Failed to delete destination for service %v, service not found", key.String())

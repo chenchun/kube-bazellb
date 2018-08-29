@@ -6,21 +6,39 @@ import (
 
 	"github.com/chenchun/kube-bmlb/api"
 	"github.com/chenchun/kube-bmlb/lvs"
+	"github.com/chenchun/kube-bmlb/utils/dbus"
+	"github.com/chenchun/kube-bmlb/utils/ipset"
+	"github.com/chenchun/kube-bmlb/utils/iptables"
+	"github.com/chenchun/kube-bmlb/utils/sysctl"
 	"github.com/docker/libnetwork/ipvs"
 	"github.com/golang/glog"
 	"k8s.io/api/core/v1"
+	"k8s.io/utils/exec"
 )
 
 type LVSAdaptor struct {
 	lvsHandler           lvs.Interface
+	iptHandler           iptables.Interface
+	ipsetHandler         ipset.Interface
 	virtualServerAddress net.IP
 }
 
 func NewLVSAdaptor(virtualServerAddress net.IP) *LVSAdaptor {
-	return &LVSAdaptor{lvsHandler: lvs.New(), virtualServerAddress: virtualServerAddress}
+	return &LVSAdaptor{
+		lvsHandler:           lvs.New(),
+		iptHandler:           iptables.New(exec.New(), dbus.New(), iptables.ProtocolIpv4),
+		ipsetHandler:         ipset.New(exec.New()),
+		virtualServerAddress: virtualServerAddress}
+}
+
+func (a *LVSAdaptor) checkSysctl() {
+	if err := sysctl.EnsureSysctl("net/ipv4/vs/conntrack", 1); err != nil {
+		glog.Warningf("failed to ensure net/ipv4/vs/conntrack: %v", err)
+	}
 }
 
 func (a *LVSAdaptor) Build(lbSvcs []*v1.Service, endpoints []*v1.Endpoints, removeOldVS bool) {
+	a.checkSysctl()
 	endpointsMap := map[string]map[string][]*v1.Endpoints{} // Namespace->Name->Endpoints
 	// virtual server is like 10.0.0.2:8080, service has allocated ports in annotation
 	// so build a map which maps ports to service
@@ -44,6 +62,7 @@ func (a *LVSAdaptor) Build(lbSvcs []*v1.Service, endpoints []*v1.Endpoints, remo
 			portServiceMap[index][lbPorts[j]] = svc
 		}
 	}
+	a.buildIptables(portServiceMap, removeOldVS)
 	for i := range endpoints {
 		enp := endpoints[i]
 		if _, exist := endpointsMap[enp.Namespace]; !exist {
@@ -60,12 +79,23 @@ func (a *LVSAdaptor) Build(lbSvcs []*v1.Service, endpoints []*v1.Endpoints, remo
 		glog.Errorf("failed to get virtual servers: %v", err)
 		return
 	}
-
 	// check existing virtual services
-	for _, vs := range vss {
+	for i := range vss {
+		vs := vss[i]
 		var index = 0
 		if vs.Protocol == "UDP" {
 			index = 1
+		}
+		if !vs.Address.Equal(a.virtualServerAddress) {
+			//TODO should we delete this virtual server in case changing a.virtualServerAddress or just continue in order to not delete user customer lvs
+			// lvs doesn't support comment
+			if removeOldVS {
+				if err := a.lvsHandler.DeleteVirtualServer(vs); err != nil {
+					// raise a warning instead of error as we will retry later
+					glog.Warningf("failed to delete virtual server %s: %v", vs.String(), err)
+				}
+			}
+			continue
 		}
 		if svc, ok := portServiceMap[index][int(vs.Port)]; !ok {
 			// service not exists, but virtual server exists
@@ -89,7 +119,8 @@ func (a *LVSAdaptor) Build(lbSvcs []*v1.Service, endpoints []*v1.Endpoints, remo
 				glog.Warningf("failed to get real servers for virtual server %s: %v", vs.String(), err)
 				continue
 			}
-			for _, rs := range rss {
+			for j := range rss {
+				rs := rss[j]
 				rsStr := fmt.Sprintf("%s:%d", rs.Address.String(), rs.Port)
 				if _, ok := expectRSs[rsStr]; !ok {
 					if err := a.lvsHandler.DeleteRealServer(vs, rs); err != nil {
