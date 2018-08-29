@@ -2,14 +2,13 @@ package bmlb
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	_ "net/http/pprof"
 	"strconv"
 	"time"
 
 	"github.com/chenchun/kube-bmlb/api"
-	"github.com/chenchun/kube-bmlb/haproxy"
-	"github.com/chenchun/kube-bmlb/haproxy/adaptor"
 	"github.com/chenchun/kube-bmlb/port"
 	"github.com/chenchun/kube-bmlb/server/flags"
 	"github.com/chenchun/kube-bmlb/watch"
@@ -26,8 +25,7 @@ type Server struct {
 	serviceWatcher   *watch.ServiceWatcher
 	endpointsWatcher *watch.EndpointsWatcher
 	Client           *kubernetes.Clientset
-	haproxy          *haproxy.Haproxy
-	adaptor          *adaptor.HAProxyAdaptor
+	lb               LoadBalance
 	syncChan         chan struct{}
 	portAllocator    *port.PortAllocator
 }
@@ -35,8 +33,6 @@ type Server struct {
 func NewServer() *Server {
 	return &Server{
 		ServerRunOptions: flags.NewServerRunOptions(),
-		haproxy:          haproxy.NewHaproxy(),
-		adaptor:          adaptor.NewHAProxyAdaptor(),
 		portAllocator:    port.NewPortAllocator(29000, 29999),
 	}
 }
@@ -47,12 +43,18 @@ func (s *Server) AddFlags(fs *pflag.FlagSet) {
 	s.ServerRunOptions.AddFlags(fs)
 }
 
-func (s *Server) Init() {}
+func (s *Server) Init() {
+	ip := net.ParseIP(s.Bind)
+	if ip == nil {
+		glog.Fatal("bind address is invalid: %s", s.Bind)
+	}
+	s.lb = NewLoadBalance(s.LBType, ip)
+}
 
 func (s *Server) Start() {
 	s.Init()
 	s.startWatcher()
-	go s.haproxy.Run()
+	go s.lb.Run(struct{}{})
 	go s.syncing()
 	if err := s.launchServer(); err != nil {
 		glog.Fatalf("failed to start server: %v", err)
@@ -100,9 +102,9 @@ func (s *Server) syncing() {
 		case <-s.syncChan:
 		case <-tick:
 		}
+		//TODO incremental
 		filtered, needsUpdateSvc := s.filterAndAllocatePorts(s.serviceWatcher.List())
-		buf := s.adaptor.Build(filtered, s.endpointsWatcher.List())
-		s.haproxy.ConfigChan <- buf
+		s.lb.Build(filtered, s.endpointsWatcher.List(), false)
 		s.updateSvcs(needsUpdateSvc)
 	}
 }
