@@ -242,4 +242,17 @@ import:
   version: 39a7bf85c140f972372c2a0d1ee40adbf0c8bfe1
   subpackages:
   - pkg/common
-
+- package: k8s.io/utils
+  version: 982821ea41da7e7c15f3d3738921eb2e7e241ccd
+  subpackages:
+  - exec
+- package: github.com/docker/libnetwork
+  version: 01cc4b18180e6ad60da805bf82976271ae4a2355
+  subpackages:
+  - ipvs
+- package: github.com/vishvananda/netlink
+  version: b2de5d10e38ecce8607e6b438b6d174f389a004e
+  subpackages:
+  - nl
+- package: github.com/vishvananda/netns
+  version: 604eaf189ee867d8c147fafc28def2394e878d25
