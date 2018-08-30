@@ -34,3 +34,7 @@ spec:
           hostPort: 80
         - containerPort: 9010
           hostPort: 9010
+        securityContext:
+          capabilities:
+            add: ["NET_ADMIN"]
+

@@ -10,6 +10,9 @@ RUN set -eux; \
 		openssl \
 		git \
 		curl \
+        ipvsadm \
+        iptables \
+        ipset \
 		go
 ENV GOPATH /go
 ENV PATH $GOPATH/bin:/usr/local/go/bin:$PATH
