@@ -32,7 +32,7 @@ var (
 
 // buildIptables builds iptables and ipsets for input services
 // serviceMap //protocol port:service, removeOldVS bool
-func (a *LVSAdaptor) buildIptables(serviceMap []map[int]*v1.Service, removeOldVS bool) {
+func (a *LVSAdaptor) buildIptables(serviceMap []map[int]*v1.Service) {
 	set := &ipset.IPSet{Name: ipsetName, SetType: ipset.HashIPPort}
 	if err := a.ipsetHandler.CreateSet(set, true); err != nil {
 		glog.Warningf("failed to create ipset %v: %v", set, err)
@@ -58,15 +58,13 @@ func (a *LVSAdaptor) buildIptables(serviceMap []map[int]*v1.Service, removeOldVS
 		glog.Warningf("failed to list ipset entries: %v", err)
 		return
 	} else {
-		if removeOldVS {
-			for _, existEntry := range existEntries {
-				if !expectEntries.Has(existEntry) {
-					if err := a.ipsetHandler.DelEntry(existEntry, ipsetName); err != nil {
-						glog.Warningf("failed to del ipset entry %s: %v", existEntry, err)
-					}
-				} else {
-					delete(expectEntries, existEntry)
+		for _, existEntry := range existEntries {
+			if !expectEntries.Has(existEntry) {
+				if err := a.ipsetHandler.DelEntry(existEntry, ipsetName); err != nil {
+					glog.Warningf("failed to del ipset entry %s: %v", existEntry, err)
 				}
+			} else {
+				delete(expectEntries, existEntry)
 			}
 		}
 	}

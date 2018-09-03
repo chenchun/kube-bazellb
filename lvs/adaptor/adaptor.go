@@ -37,7 +37,7 @@ func (a *LVSAdaptor) checkSysctl() {
 	}
 }
 
-func (a *LVSAdaptor) Build(lbSvcs []*v1.Service, endpoints []*v1.Endpoints, removeOldVS bool) {
+func (a *LVSAdaptor) Build(lbSvcs []*v1.Service, endpoints []*v1.Endpoints) {
 	a.checkSysctl()
 	endpointsMap := map[string]map[string][]*v1.Endpoints{} // Namespace->Name->Endpoints
 	// virtual server is like 10.0.0.2:8080, service has allocated ports in annotation
@@ -62,7 +62,7 @@ func (a *LVSAdaptor) Build(lbSvcs []*v1.Service, endpoints []*v1.Endpoints, remo
 			portServiceMap[index][lbPorts[j]] = svc
 		}
 	}
-	a.buildIptables(portServiceMap, removeOldVS)
+	a.buildIptables(portServiceMap)
 	for i := range endpoints {
 		enp := endpoints[i]
 		if _, exist := endpointsMap[enp.Namespace]; !exist {
@@ -89,21 +89,17 @@ func (a *LVSAdaptor) Build(lbSvcs []*v1.Service, endpoints []*v1.Endpoints, remo
 		if !vs.Address.Equal(a.virtualServerAddress) {
 			//TODO should we delete this virtual server in case changing a.virtualServerAddress or just continue in order to not delete user customer lvs
 			// lvs doesn't support comment
-			if removeOldVS {
-				if err := a.lvsHandler.DeleteVirtualServer(vs); err != nil {
-					// raise a warning instead of error as we will retry later
-					glog.Warningf("failed to delete virtual server %s: %v", vs.String(), err)
-				}
+			if err := a.lvsHandler.DeleteVirtualServer(vs); err != nil {
+				// raise a warning instead of error as we will retry later
+				glog.Warningf("failed to delete virtual server %s: %v", vs.String(), err)
 			}
 			continue
 		}
 		if svc, ok := portServiceMap[index][int(vs.Port)]; !ok {
 			// service not exists, but virtual server exists
-			if removeOldVS {
-				if err := a.lvsHandler.DeleteVirtualServer(vs); err != nil {
-					// raise a warning instead of error as we will retry later
-					glog.Warningf("failed to delete virtual server %s: %v", vs.String(), err)
-				}
+			if err := a.lvsHandler.DeleteVirtualServer(vs); err != nil {
+				// raise a warning instead of error as we will retry later
+				glog.Warningf("failed to delete virtual server %s: %v", vs.String(), err)
 			}
 		} else {
 			delete(portServiceMap[index], int(vs.Port))
@@ -192,7 +188,7 @@ func getExpectRS(edpts []*v1.Endpoints, vs *lvs.VirtualServer, svc *v1.Service) 
 					// endpoint is not synced with service yet
 					continue
 				}
-				expectRS[fmt.Sprintf("%s:%d", addr.IP, subset.Ports[portIndex].Port)] = lvs.RealServer{Address: net.ParseIP(addr.IP), Port: uint16(subset.Ports[portIndex].Port)}
+				expectRS[fmt.Sprintf("%s:%d", addr.IP, subset.Ports[portIndex].Port)] = lvs.RealServer{Address: net.ParseIP(addr.IP), Port: uint16(subset.Ports[portIndex].Port), Weight: 1}
 			}
 		}
 	}

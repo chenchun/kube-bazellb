@@ -10,11 +10,11 @@ PACKAGE=github.com/chenchun/kube-bmlb
 .PHONY: build
 build:
 	@mkdir -p bin
-	GOOS=$(GOOS) GOARCH=$(GOARCH) go build \
+	GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=0 go build \
 	  -ldflags "-s -w -X version.COMMIT=$(GIT_COMMIT) -X version.REPO=$(GIT_REPO)" \
-	  -o bin/kube-bmlb \
+	  -o bin/bmlb \
 	  $(PACKAGE)/cmd/bmlb
 
 .PHONY: image
 image:
-	docker build -t kube-bmlb -f dockerfile/bmlb/Dockerfile .
+	docker build --network=host -t chenchun/kube-bmlb -f dockerfile/bmlb/Dockerfile .

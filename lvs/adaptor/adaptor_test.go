@@ -64,28 +64,7 @@ func TestBuild(t *testing.T) {
 		endpoint("s2", rsAddr2.String(), 9001),
 	}
 	a := &LVSAdaptor{lvsHandler: fake, virtualServerAddress: vsAddr, iptHandler: ipttesting.NewFakeIPTables(), ipsetHandler: ipsettesting.NewFake("")}
-	a.Build(services, endpoints, false)
-	str, err = lvs.Dump(fake)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if str != `10.0.0.2:70/TCP
-  -> 192.168.0.2:71
-
-10.0.0.2:80/TCP
-  -> 192.168.0.2:81
-
-10.0.0.2:8080/UDP
-  -> 192.168.0.2:9000
-  -> 192.168.0.3:9001
-
-10.0.0.3:80/TCP
-  -> 192.168.0.2:81
-` {
-		t.Fatal(str)
-	}
-	// check removeOldVS
-	a.Build(services, endpoints, true)
+	a.Build(services, endpoints)
 	str, err = lvs.Dump(fake)
 	if err != nil {
 		t.Fatal(err)

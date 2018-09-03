@@ -21,8 +21,13 @@ spec:
       containers:
       - name: kube-bmlb
         image: chenchun/kube-bmlb
+        env:
+          - name: NODE_IP
+            valueFrom:
+              fieldRef:
+                fieldPath: status.hostIP
         command: ["bmlb"]
-        args: ["--logtostderr", "-v=4"]
+        args: ["--logtostderr", "--v=4", "--lbtype=haproxy", "--bind=$(NODE_IP)"]
         resources:
           limits:
             memory: 100Mi

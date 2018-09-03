@@ -104,7 +104,7 @@ func (s *Server) syncing() {
 		}
 		//TODO incremental
 		filtered, needsUpdateSvc := s.filterAndAllocatePorts(s.serviceWatcher.List())
-		s.lb.Build(filtered, s.endpointsWatcher.List(), false)
+		s.lb.Build(filtered, s.endpointsWatcher.List())
 		s.updateSvcs(needsUpdateSvc)
 	}
 }
