@@ -51,10 +51,14 @@ func (a *HAProxyAdaptor) Build(lbSvcs []*v1.Service, endpoints []*v1.Endpoints) 
 			continue
 		}
 		var binds []haproxy.Bind
-		lbPorts := api.DecodeL4Ports(svc.Annotations[api.ANNOTATION_KEY_PORT])
-		for j := range svc.Spec.Ports {
-			//TODO concrete the IP once we defined HA
-			binds = append(binds, haproxy.Bind{IP: "0.0.0.0", Port: lbPorts[j]})
+		protolPorts := api.DecodeL4Ports(svc.Annotations[api.ANStatusBindedPort])
+		for _, ports := range protolPorts {
+			for port := range ports {
+				//TODO concrete the IP once we defined HA
+				//TODO protocol
+				binds = append(binds, haproxy.Bind{IP: "0.0.0.0", Port: int(port)})
+			}
+
 		}
 		a.frontTplt.Execute(buf, haproxy.Frontend{
 			Name:           svc.Name,

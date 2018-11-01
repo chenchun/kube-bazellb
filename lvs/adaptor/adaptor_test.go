@@ -3,7 +3,6 @@ package adaptor
 import (
 	"bytes"
 	"net"
-	"strconv"
 	"testing"
 
 	"github.com/chenchun/kube-bmlb/api"
@@ -117,12 +116,16 @@ Members:
 
 func service(name string, proto v1.Protocol, ports ...int) *v1.Service {
 	svc := &v1.Service{ObjectMeta: metav1.ObjectMeta{Name: name}}
-	portStrs := make([]string, len(ports))
-	for i, port := range ports {
-		portStrs[i] = strconv.Itoa(port)
+	portMap := map[int32]int32{}
+	for _, port := range ports {
+		portMap[int32(port)] = int32(port)
 		svc.Spec.Ports = append(svc.Spec.Ports, v1.ServicePort{Protocol: proto})
 	}
-	svc.Annotations = map[string]string{api.ANNOTATION_KEY_PORT: api.EncodeL4Ports(portStrs)}
+	protocolPorts := []map[int32]int32{portMap, {}}
+	if proto == v1.ProtocolUDP {
+		protocolPorts = []map[int32]int32{{}, portMap}
+	}
+	svc.Annotations = map[string]string{api.ANStatusBindedPort: api.EncodeL4Ports(protocolPorts)}
 	return svc
 }
 

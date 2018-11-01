@@ -42,24 +42,18 @@ func (a *LVSAdaptor) Build(lbSvcs []*v1.Service, endpoints []*v1.Endpoints) {
 	endpointsMap := map[string]map[string][]*v1.Endpoints{} // Namespace->Name->Endpoints
 	// virtual server is like 10.0.0.2:8080, service has allocated ports in annotation
 	// so build a map which maps ports to service
-	portServiceMap := []map[int]*v1.Service{{}, {}} //protocol port:service
+	portServiceMap := []map[int32]*v1.Service{{}, {}} //protocol port:service
 	for i := range lbSvcs {
 		svc := lbSvcs[i]
 		if _, ok := endpointsMap[svc.Namespace]; !ok {
 			endpointsMap[svc.Namespace] = map[string][]*v1.Endpoints{}
 		}
 		endpointsMap[svc.Namespace][svc.Name] = []*v1.Endpoints{}
-		lbPorts := api.DecodeL4Ports(svc.Annotations[api.ANNOTATION_KEY_PORT])
-		if len(lbPorts) != len(svc.Spec.Ports) {
-			glog.Errorf("loadbalance ports size %d not equal service ports size %d", len(lbPorts), len(svc.Spec.Ports))
-			return
-		}
-		for j, port := range svc.Spec.Ports {
-			var index = 0
-			if port.Protocol == v1.ProtocolUDP {
-				index = 1
+		lbPorts := api.DecodeL4Ports(svc.Annotations[api.ANStatusBindedPort])
+		for protol, ports := range lbPorts {
+			for _, port := range ports {
+				portServiceMap[protol][port] = svc
 			}
-			portServiceMap[index][lbPorts[j]] = svc
 		}
 	}
 	a.buildIptables(portServiceMap)
@@ -95,14 +89,14 @@ func (a *LVSAdaptor) Build(lbSvcs []*v1.Service, endpoints []*v1.Endpoints) {
 			}
 			continue
 		}
-		if svc, ok := portServiceMap[index][int(vs.Port)]; !ok {
+		if svc, ok := portServiceMap[index][int32(vs.Port)]; !ok {
 			// service not exists, but virtual server exists
 			if err := a.lvsHandler.DeleteVirtualServer(vs); err != nil {
 				// raise a warning instead of error as we will retry later
 				glog.Warningf("failed to delete virtual server %s: %v", vs.String(), err)
 			}
 		} else {
-			delete(portServiceMap[index], int(vs.Port))
+			delete(portServiceMap[index], int32(vs.Port))
 			// syncing real servers
 			edpts := endpointsMap[svc.Namespace][svc.Name]
 			if len(edpts) == 0 {
@@ -167,10 +161,9 @@ func (a *LVSAdaptor) Build(lbSvcs []*v1.Service, endpoints []*v1.Endpoints) {
 
 // getExpectRS returns {"10.0.0.2:8080": RealServer}
 func getExpectRS(edpts []*v1.Endpoints, vs *lvs.VirtualServer, svc *v1.Service) map[string]lvs.RealServer {
-	lbPorts := api.DecodeL4Ports(svc.Annotations[api.ANNOTATION_KEY_PORT])
 	portIndex := -1
-	for i, p := range lbPorts {
-		if uint16(p) == vs.Port {
+	for i, p := range svc.Spec.Ports {
+		if uint16(p.Port) == vs.Port {
 			portIndex = i
 			break
 		}
@@ -184,7 +177,7 @@ func getExpectRS(edpts []*v1.Endpoints, vs *lvs.VirtualServer, svc *v1.Service) 
 	for _, edpt := range edpts {
 		for _, subset := range edpt.Subsets {
 			for _, addr := range subset.Addresses {
-				if len(subset.Ports) != len(lbPorts) {
+				if len(subset.Ports) != len(svc.Spec.Ports) {
 					// endpoint is not synced with service yet
 					continue
 				}

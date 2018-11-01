@@ -32,7 +32,7 @@ var (
 
 // buildIptables builds iptables and ipsets for input services
 // serviceMap //protocol port:service, removeOldVS bool
-func (a *LVSAdaptor) buildIptables(serviceMap []map[int]*v1.Service) {
+func (a *LVSAdaptor) buildIptables(serviceMap []map[int32]*v1.Service) {
 	set := &ipset.IPSet{Name: ipsetName, SetType: ipset.HashIPPort}
 	if err := a.ipsetHandler.CreateSet(set, true); err != nil {
 		glog.Warningf("failed to create ipset %v: %v", set, err)
@@ -50,7 +50,7 @@ func (a *LVSAdaptor) buildIptables(serviceMap []map[int]*v1.Service) {
 			protocol = "udp"
 		}
 		for p := range serviceMap[i] {
-			expectEntries.Insert((&ipset.Entry{IP: a.virtualServerAddress.String(), Port: p, Protocol: protocol, SetType: set.SetType}).String())
+			expectEntries.Insert((&ipset.Entry{IP: a.virtualServerAddress.String(), Port: int(p), Protocol: protocol, SetType: set.SetType}).String())
 		}
 	}
 	existEntries, err := a.ipsetHandler.ListEntries(ipsetName)

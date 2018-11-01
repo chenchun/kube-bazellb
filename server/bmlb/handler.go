@@ -30,9 +30,13 @@ func (s *Server) UpdateService(oldSvc, newSvc *v1.Service) {
 }
 
 func (s *Server) DeleteService(svc *v1.Service) {
-	ports := api.DecodeL4Ports(svc.Annotations[api.ANNOTATION_KEY_PORT])
-	for i := range ports {
-		s.portAllocator.Revoke(uint(ports[i]))
+	protolPorts := api.DecodeL4Ports(svc.Annotations[api.ANStatusBindedPort])
+	for protol, ports := range protolPorts {
+		for _, port := range ports {
+			if !s.portAllocator[protol].Revoke(port) {
+				glog.Warningf("un-revoked port %v:%d for svc %s", protolcol(protol), port, objectKey(&svc.ObjectMeta))
+			}
+		}
 	}
 	glog.V(5).Infof("delete svc %s", objectKey(&svc.ObjectMeta))
 	s.maybeSync()
@@ -70,7 +74,7 @@ func (s *Server) skipServiceUpdate(old, new *v1.Service) bool {
 		// have a new resource version.
 		p.ResourceVersion = ""
 		// ANNOTATION_KEY_PORT must be excluded
-		p.Annotations[api.ANNOTATION_KEY_PORT] = ""
+		p.Annotations[api.ANStatusBindedPort] = ""
 		return p
 	}
 	oldCopy, newCopy := f(old), f(new)
@@ -98,7 +102,7 @@ func (s *Server) updateSvcs(svcs map[string]*v1.Service) {
 			if svcCopy.Annotations == nil {
 				svcCopy.Annotations = map[string]string{}
 			}
-			svcCopy.Annotations[api.ANNOTATION_KEY_PORT] = svc.Annotations[api.ANNOTATION_KEY_PORT]
+			svcCopy.Annotations[api.ANStatusBindedPort] = svc.Annotations[api.ANStatusBindedPort]
 			ret := &unstructured.Unstructured{}
 			ret.SetAnnotations(svcCopy.Annotations)
 			patchData, err := json.Marshal(ret)
@@ -111,7 +115,7 @@ func (s *Server) updateSvcs(svcs map[string]*v1.Service) {
 					glog.Warningf("failed to update svc %s: %v", objectKey(&svc.ObjectMeta), err)
 					return false, nil
 				}
-				glog.V(3).Infof("updated %s for svc %s", svcCopy.Annotations[api.ANNOTATION_KEY_PORT], objectKey(&svc.ObjectMeta))
+				glog.V(3).Infof("updated %s for svc %s", svcCopy.Annotations[api.ANStatusBindedPort], objectKey(&svc.ObjectMeta))
 				return true, nil
 			}); err != nil {
 				glog.Errorf("failed to update svc %s: %v", objectKey(&svc.ObjectMeta), err)

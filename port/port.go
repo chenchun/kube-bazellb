@@ -1,44 +1,37 @@
 package port
 
 import (
-	"sync/atomic"
-
+	"github.com/chenchun/kube-bmlb/utils/bits"
 	"github.com/golang/glog"
 )
 
-// PortAllocator allocates ports and is thread safe
-type PortAllocator struct {
-	min       uint
-	allocated []uint32
+type PortAllocator interface {
+	Allocate() *int32
+	Allocated(port int32) bool
+	Revoke(port int32) bool
 }
 
-func NewPortAllocator(min, max uint) *PortAllocator {
+// portAllocator allocates ports and is thread safe
+type portAllocator struct {
+	bs *bits.Bits
+}
+
+func NewPortAllocator(min, max int32) PortAllocator {
 	// kubernetes nodeport binds to (default: 30000-32767)
 	if max <= min || max >= 30000 {
 		glog.Fatal("max should bigger than min and smaller than 30000")
 	}
-	return &PortAllocator{min: min, allocated: make([]uint32, max-min+1)}
+	return &portAllocator{bs: bits.NewBits(min, max)}
 }
 
-func (a *PortAllocator) Allocate() uint {
-	for i := range a.allocated {
-		if atomic.CompareAndSwapUint32(&a.allocated[i], 0, 1) {
-			return uint(i) + a.min
-		}
-	}
-	return 0
+func (a *portAllocator) Allocate() *int32 {
+	return a.bs.Allocate()
 }
 
-func (a *PortAllocator) Allocated(port uint) {
-	if port < a.min || port-a.min > uint(len(a.allocated)-1) {
-		return
-	}
-	atomic.CompareAndSwapUint32(&a.allocated[port-a.min], 0, 1)
+func (a *portAllocator) Allocated(port int32) bool {
+	return a.bs.Allocated(port)
 }
 
-func (a *PortAllocator) Revoke(port uint) {
-	if port < a.min || port-a.min > uint(len(a.allocated)-1) {
-		return
-	}
-	atomic.CompareAndSwapUint32(&a.allocated[port-a.min], 1, 0)
+func (a *portAllocator) Revoke(port int32) bool {
+	return a.bs.Revoke(port)
 }

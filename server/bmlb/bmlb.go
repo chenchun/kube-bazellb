@@ -5,7 +5,6 @@ import (
 	"net"
 	"net/http"
 	_ "net/http/pprof"
-	"strconv"
 	"time"
 
 	"github.com/chenchun/kube-bmlb/api"
@@ -27,13 +26,13 @@ type Server struct {
 	Client           *kubernetes.Clientset
 	lb               LoadBalance
 	syncChan         chan struct{}
-	portAllocator    *port.PortAllocator
+	portAllocator    []port.PortAllocator
 }
 
 func NewServer() *Server {
 	return &Server{
 		ServerRunOptions: flags.NewServerRunOptions(),
-		portAllocator:    port.NewPortAllocator(29000, 29999),
+		portAllocator:    []port.PortAllocator{port.NewPortAllocator(29000, 29999), port.NewPortAllocator(29000, 29999)}, //tcp, udp
 	}
 }
 
@@ -109,11 +108,25 @@ func (s *Server) syncing() {
 	}
 }
 
+func protolcolIndex(protocol v1.Protocol) int {
+	if protocol == v1.ProtocolUDP {
+		return 1
+	}
+	return 0
+}
+
+func protolcol(i int) v1.Protocol {
+	if i == 1 {
+		return v1.ProtocolUDP
+	}
+	return v1.ProtocolTCP
+}
+
 func (s *Server) filterAndAllocatePorts(svcs []*v1.Service) ([]*v1.Service, map[string]*v1.Service) {
-	//TODO support updating services which may add or del ports
+	// keep in mind we may add or del services ports
 	var filtered []*v1.Service
 	needsUpdateSvc := map[string]*v1.Service{}
-	// Mark ports in annotation as allocated
+	// Mark binded ports in status annotation as allocated
 	for i := range svcs {
 		svc := svcs[i]
 		if svc.Spec.Type != v1.ServiceTypeLoadBalancer {
@@ -123,32 +136,69 @@ func (s *Server) filterAndAllocatePorts(svcs []*v1.Service) ([]*v1.Service, map[
 		if svc.Annotations == nil {
 			continue
 		}
-		if portStr, exist := svc.Annotations[api.ANNOTATION_KEY_PORT]; exist {
-			ports := api.DecodeL4Ports(portStr)
-			for j := range ports {
-				glog.V(5).Infof("port %d allocated for svc %s", ports[j], objectKey(&svc.ObjectMeta))
-				s.portAllocator.Allocated(uint(ports[j]))
+		if portStr, exist := svc.Annotations[api.ANStatusBindedPort]; exist {
+			protols := api.DecodeL4Ports(portStr)
+			for protol, ports := range protols {
+				for _, j := range ports {
+					s.portAllocator[protol].Allocated(j)
+				}
 			}
 		}
 	}
-	// Allocate ports for svcs that do not have the port annotation
+	// Allocate new ports and revoke old ports
 	for i := range svcs {
 		svc := svcs[i]
 		if svc.Spec.Type != v1.ServiceTypeLoadBalancer {
 			continue
 		}
+		needUpdate := false
+		allocatedPorts := []map[int32]int32{{}, {}}
+		if svc.Annotations != nil {
+			if portStr, exist := svc.Annotations[api.ANStatusBindedPort]; exist {
+				allocatedPorts = api.DecodeL4Ports(portStr)
+			}
+		}
+		// Allocate new ports
+		expectPorts := []map[int32]int32{{}, {}}
+		for j := range svc.Spec.Ports {
+			port := svc.Spec.Ports[j]
+			pi := protolcolIndex(port.Protocol)
+			expectPorts[pi][port.Port] = port.Port
+			if _, ok := allocatedPorts[pi][port.Port]; ok {
+				// port already allocated by this service
+				continue
+			}
+			if !s.portAllocator[pi].Allocated(port.Port) {
+				// port has been allocated by another service
+				continue
+			}
+			// successfully allocate this port, we should update service
+			needUpdate = true
+			allocatedPorts[pi][port.Port] = port.Port
+			glog.V(5).Infof("port %v:%d allocated for svc %s", port.Protocol, port.Port, objectKey(&svc.ObjectMeta))
+		}
+		// revoke old ports
+		for protol, ports := range allocatedPorts {
+			for _, port := range ports {
+				if _, ok := expectPorts[protol][port]; !ok {
+					delete(ports, port)
+					needUpdate = true
+					glog.V(5).Infof("port %v:%d revoked from svc %s", protolcol(protol), port, objectKey(&svc.ObjectMeta))
+				}
+			}
+		}
+		if !needUpdate {
+			continue
+		}
+		if len(svc.Status.LoadBalancer.Ingress) > 0 {
+			continue
+		}
+		svc.Status.LoadBalancer.Ingress = []v1.LoadBalancerIngress{{IP: s.Bind}} //TODO load balancer ip
 		if svc.Annotations == nil {
 			svc.Annotations = map[string]string{}
 		}
-		if _, exist := svc.Annotations[api.ANNOTATION_KEY_PORT]; !exist {
-			allocated := make([]string, len(svc.Spec.Ports))
-			for j := range svc.Spec.Ports {
-				allocated[j] = strconv.Itoa(int(s.portAllocator.Allocate()))
-				glog.V(5).Infof("port %d allocated for svc %s", allocated[j], objectKey(&svc.ObjectMeta))
-			}
-			svc.Annotations[api.ANNOTATION_KEY_PORT] = api.EncodeL4Ports(allocated)
-			needsUpdateSvc[objectKey(&svc.ObjectMeta)] = svc
-		}
+		svc.Annotations[api.ANStatusBindedPort] = api.EncodeL4Ports(expectPorts)
+		needsUpdateSvc[objectKey(&svc.ObjectMeta)] = svc
 	}
 	return filtered, needsUpdateSvc
 }
