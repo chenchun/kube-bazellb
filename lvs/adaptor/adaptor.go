@@ -159,13 +159,7 @@ func getExpectRSs(svcs []*v1.Service, endpointsMap map[string]map[string][]*v1.E
 }
 
 func addExpectRS(expectRS map[string]lvs.RealServer, edpts []*v1.Endpoints, vs *lvs.VirtualServer, svc *v1.Service) {
-	var targetPort *intstr.IntOrString
-	for _, p := range svc.Spec.Ports {
-		if uint16(p.Port) == vs.Port {
-			targetPort = &p.TargetPort
-			break
-		}
-	}
+	targetPort := getTargetPort(int32(vs.Port), svc)
 	if targetPort == nil {
 		// should never happen
 		return
