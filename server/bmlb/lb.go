@@ -25,7 +25,6 @@ func NewLoadBalance(lbtype string, ip net.IP) LoadBalance {
 }
 
 type LoadBalance interface {
-	SupportIncrementalUpdate() bool
 	Build(lbSvcs []*v1.Service, endpoints []*v1.Endpoints)
 	Run(stop struct{})
 }
@@ -33,10 +32,6 @@ type LoadBalance interface {
 type HaproxyLB struct {
 	haproxy *haproxy.Haproxy
 	adaptor *haproxyAdaptor.HAProxyAdaptor
-}
-
-func (h *HaproxyLB) SupportIncrementalUpdate() bool {
-	return false
 }
 
 func (h *HaproxyLB) Build(lbSvcs []*v1.Service, endpoints []*v1.Endpoints) {
@@ -50,10 +45,6 @@ func (h *HaproxyLB) Run(stop struct{}) {
 
 type LVSLB struct {
 	adaptor *lvsAdaptor.LVSAdaptor
-}
-
-func (h *LVSLB) SupportIncrementalUpdate() bool {
-	return true
 }
 
 func (h *LVSLB) Build(lbSvcs []*v1.Service, endpoints []*v1.Endpoints) {

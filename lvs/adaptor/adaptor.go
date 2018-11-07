@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/chenchun/kube-bmlb/api"
 	"github.com/chenchun/kube-bmlb/lvs"
 	"github.com/chenchun/kube-bmlb/utils/dbus"
 	"github.com/chenchun/kube-bmlb/utils/ipset"
@@ -13,6 +12,7 @@ import (
 	"github.com/docker/libnetwork/ipvs"
 	"github.com/golang/glog"
 	"k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/exec"
 )
 
@@ -42,24 +42,16 @@ func (a *LVSAdaptor) Build(lbSvcs []*v1.Service, endpoints []*v1.Endpoints) {
 	endpointsMap := map[string]map[string][]*v1.Endpoints{} // Namespace->Name->Endpoints
 	// virtual server is like 10.0.0.2:8080, service has allocated ports in annotation
 	// so build a map which maps ports to service
-	portServiceMap := []map[int]*v1.Service{{}, {}} //protocol port:service
+	portServiceMap := []map[int32][]*v1.Service{{}, {}} //protocol port:service array
 	for i := range lbSvcs {
 		svc := lbSvcs[i]
 		if _, ok := endpointsMap[svc.Namespace]; !ok {
 			endpointsMap[svc.Namespace] = map[string][]*v1.Endpoints{}
 		}
 		endpointsMap[svc.Namespace][svc.Name] = []*v1.Endpoints{}
-		lbPorts := api.DecodeL4Ports(svc.Annotations[api.ANNOTATION_KEY_PORT])
-		if len(lbPorts) != len(svc.Spec.Ports) {
-			glog.Errorf("loadbalance ports size %d not equal service ports size %d", len(lbPorts), len(svc.Spec.Ports))
-			return
-		}
-		for j, port := range svc.Spec.Ports {
-			var index = 0
-			if port.Protocol == v1.ProtocolUDP {
-				index = 1
-			}
-			portServiceMap[index][lbPorts[j]] = svc
+		for _, port := range svc.Spec.Ports {
+			protocolMap := portServiceMap[protolcolIndex(port.Protocol)]
+			protocolMap[port.Port] = append(protocolMap[port.Port], svc)
 		}
 	}
 	a.buildIptables(portServiceMap)
@@ -95,21 +87,16 @@ func (a *LVSAdaptor) Build(lbSvcs []*v1.Service, endpoints []*v1.Endpoints) {
 			}
 			continue
 		}
-		if svc, ok := portServiceMap[index][int(vs.Port)]; !ok {
+		if svcs, ok := portServiceMap[index][int32(vs.Port)]; !ok {
 			// service not exists, but virtual server exists
 			if err := a.lvsHandler.DeleteVirtualServer(vs); err != nil {
 				// raise a warning instead of error as we will retry later
 				glog.Warningf("failed to delete virtual server %s: %v", vs.String(), err)
 			}
 		} else {
-			delete(portServiceMap[index], int(vs.Port))
+			delete(portServiceMap[index], int32(vs.Port))
 			// syncing real servers
-			edpts := endpointsMap[svc.Namespace][svc.Name]
-			if len(edpts) == 0 {
-				//  endpoints not exists for now
-				continue
-			}
-			expectRSs := getExpectRS(edpts, vs, svc)
+			expectRSs := getExpectRSs(svcs, endpointsMap, vs)
 			rss, err := a.lvsHandler.GetRealServers(vs)
 			if err != nil {
 				glog.Warningf("failed to get real servers for virtual server %s: %v", vs.String(), err)
@@ -127,12 +114,7 @@ func (a *LVSAdaptor) Build(lbSvcs []*v1.Service, endpoints []*v1.Endpoints) {
 				}
 			}
 			// add new real servers
-			for str := range expectRSs {
-				expectRS := expectRSs[str]
-				if err := a.lvsHandler.AddRealServer(vs, &expectRS); err != nil {
-					glog.Warningf("failed to add real server %s: %v", expectRS.String(), err)
-				}
-			}
+			a.addRealServers(vs, expectRSs)
 		}
 	}
 
@@ -142,55 +124,100 @@ func (a *LVSAdaptor) Build(lbSvcs []*v1.Service, endpoints []*v1.Endpoints) {
 		if i == 1 {
 			protocol = "UDP"
 		}
-		for port, svc := range portServiceMap[i] {
+		for port, svcs := range portServiceMap[i] {
 			vs := &lvs.VirtualServer{Address: a.virtualServerAddress, Port: uint16(port), Protocol: protocol, Scheduler: ipvs.RoundRobin}
 			if err := a.lvsHandler.AddVirtualServer(vs); err != nil {
 				// raise a warning instead of error as we will retry later
 				glog.Warningf("failed to add virtual server %s: %v", vs.String(), err)
 				continue
 			}
-			edpts := endpointsMap[svc.Namespace][svc.Name]
-			if len(edpts) == 0 {
-				//  endpoints not exists for now
-				continue
-			}
-			expectRSs := getExpectRS(edpts, vs, svc)
-			for str := range expectRSs {
-				expectRS := expectRSs[str]
-				if err := a.lvsHandler.AddRealServer(vs, &expectRS); err != nil {
-					glog.Warningf("failed to add real server %s: %v", expectRS.String(), err)
-				}
-			}
+			a.addRealServers(vs, getExpectRSs(svcs, endpointsMap, vs))
 		}
 	}
 }
 
-// getExpectRS returns {"10.0.0.2:8080": RealServer}
-func getExpectRS(edpts []*v1.Endpoints, vs *lvs.VirtualServer, svc *v1.Service) map[string]lvs.RealServer {
-	lbPorts := api.DecodeL4Ports(svc.Annotations[api.ANNOTATION_KEY_PORT])
-	portIndex := -1
-	for i, p := range lbPorts {
-		if uint16(p) == vs.Port {
-			portIndex = i
+func (a *LVSAdaptor) addRealServers(vs *lvs.VirtualServer, expectRSs map[string]lvs.RealServer) {
+	for str := range expectRSs {
+		expectRS := expectRSs[str]
+		if err := a.lvsHandler.AddRealServer(vs, &expectRS); err != nil {
+			glog.Warningf("failed to add real server %s: %v", expectRS.String(), err)
+		}
+	}
+}
+
+func getExpectRSs(svcs []*v1.Service, endpointsMap map[string]map[string][]*v1.Endpoints, vs *lvs.VirtualServer) map[string]lvs.RealServer {
+	expectRSs := map[string]lvs.RealServer{}
+	// syncing real servers
+	for _, svc := range svcs {
+		edpts := endpointsMap[svc.Namespace][svc.Name]
+		if len(edpts) == 0 {
+			continue
+		}
+		addExpectRS(expectRSs, edpts, vs, svc)
+	}
+	return expectRSs
+}
+
+func addExpectRS(expectRS map[string]lvs.RealServer, edpts []*v1.Endpoints, vs *lvs.VirtualServer, svc *v1.Service) {
+	var targetPort *intstr.IntOrString
+	for _, p := range svc.Spec.Ports {
+		if uint16(p.Port) == vs.Port {
+			targetPort = &p.TargetPort
 			break
 		}
 	}
-	expectRS := map[string]lvs.RealServer{}
-	if portIndex == -1 {
+	if targetPort == nil {
 		// should never happen
-		glog.Errorf("portIndex %d", portIndex)
-		return expectRS
+		return
 	}
 	for _, edpt := range edpts {
 		for _, subset := range edpt.Subsets {
+			port := getTargetIntPort(targetPort, &subset)
+			if port == 0 {
+				// endpoints may not have been synced
+				continue
+			}
 			for _, addr := range subset.Addresses {
-				if len(subset.Ports) != len(lbPorts) {
-					// endpoint is not synced with service yet
-					continue
-				}
-				expectRS[fmt.Sprintf("%s:%d", addr.IP, subset.Ports[portIndex].Port)] = lvs.RealServer{Address: net.ParseIP(addr.IP), Port: uint16(subset.Ports[portIndex].Port), Weight: 1}
+				expectRS[fmt.Sprintf("%s:%d", addr.IP, port)] = lvs.RealServer{Address: net.ParseIP(addr.IP), Port: uint16(port), Weight: 1}
 			}
 		}
 	}
-	return expectRS
+	return
+}
+
+func getTargetPort(port int32, svc *v1.Service) *intstr.IntOrString {
+	var targetPort *intstr.IntOrString
+	for _, p := range svc.Spec.Ports {
+		if p.Port == port {
+			targetPort = &p.TargetPort
+			break
+		}
+	}
+	return targetPort
+}
+
+func getTargetIntPort(targetPort *intstr.IntOrString, subset *v1.EndpointSubset) int32 {
+	if targetPort.Type == intstr.Int {
+		return targetPort.IntVal
+	}
+	for _, port := range subset.Ports {
+		if port.Name == targetPort.StrVal {
+			return port.Port
+		}
+	}
+	return 0
+}
+
+func protolcolIndex(protocol v1.Protocol) int {
+	if protocol == v1.ProtocolUDP {
+		return 1
+	}
+	return 0
+}
+
+func protolcol(i int) v1.Protocol {
+	if i == 1 {
+		return v1.ProtocolUDP
+	}
+	return v1.ProtocolTCP
 }

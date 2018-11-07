@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"text/template"
 
-	"github.com/chenchun/kube-bmlb/api"
 	"github.com/chenchun/kube-bmlb/haproxy"
 	"k8s.io/api/core/v1"
 )
@@ -51,10 +50,10 @@ func (a *HAProxyAdaptor) Build(lbSvcs []*v1.Service, endpoints []*v1.Endpoints) 
 			continue
 		}
 		var binds []haproxy.Bind
-		lbPorts := api.DecodeL4Ports(svc.Annotations[api.ANNOTATION_KEY_PORT])
-		for j := range svc.Spec.Ports {
+		for _, port := range svc.Spec.Ports {
 			//TODO concrete the IP once we defined HA
-			binds = append(binds, haproxy.Bind{IP: "0.0.0.0", Port: lbPorts[j]})
+			//TODO protocol
+			binds = append(binds, haproxy.Bind{IP: "0.0.0.0", Port: int(port.Port)})
 		}
 		a.frontTplt.Execute(buf, haproxy.Frontend{
 			Name:           svc.Name,

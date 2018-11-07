@@ -1,27 +1,19 @@
 package api
 
 import (
-	"strconv"
-	"strings"
+	"encoding/json"
 )
 
 var (
-	ANNOTATION_KEY_PORT = "v1.bmlb.l4/port"
+	ANWeight = "v1.bmlb.l4/weight"
 )
 
-func DecodeL4Ports(portStr string) []int {
-	var ports []int
-	parts := strings.Split(portStr, ",")
-	for j := range parts {
-		p, err := strconv.Atoi(parts[j])
-		if err != nil {
-			continue
-		}
-		ports = append(ports, p)
-	}
-	return ports
-}
+type Weight map[int]uint
 
-func EncodeL4Ports(ports []string) string {
-	return strings.Join(ports, ",")
+func DecodeL4Weight(weightStr string) (map[int]uint, error) {
+	var w Weight
+	if err := json.Unmarshal([]byte(weightStr), &w); err != nil {
+		return nil, err
+	}
+	return w, nil
 }
