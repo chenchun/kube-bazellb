@@ -98,20 +98,32 @@ func (s *Server) syncing() {
 		case <-tick:
 		}
 		//TODO incremental
-		filtered := s.filter(s.serviceWatcher.List())
+		filtered, needsUpdate := s.filter(s.serviceWatcher.List())
 		s.lb.Build(filtered, s.endpointsWatcher.List())
+		s.updateSvcs(needsUpdate)
 	}
 }
 
-func (s *Server) filter(svcs []*v1.Service) []*v1.Service {
+func (s *Server) filter(svcs []*v1.Service) ([]*v1.Service, []*v1.Service) {
 	// keep in mind we may add or del services ports
-	var filtered []*v1.Service
+	var filtered, needsUpdate []*v1.Service
 	for i := range svcs {
 		svc := svcs[i]
 		if svc.Spec.Type != v1.ServiceTypeLoadBalancer {
 			continue
 		}
 		filtered = append(filtered, svc)
+		findLBIP := false
+		for _, ingress := range svc.Status.LoadBalancer.Ingress {
+			if ingress.IP == s.Bind {
+				findLBIP = true
+				break
+			}
+		}
+		if !findLBIP {
+			needsUpdate = append(needsUpdate, svc)
+			svc.Status.LoadBalancer.Ingress = append(svc.Status.LoadBalancer.Ingress, v1.LoadBalancerIngress{IP: s.Bind})
+		}
 	}
-	return filtered
+	return filtered, needsUpdate
 }
