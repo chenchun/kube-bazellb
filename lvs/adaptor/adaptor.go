@@ -12,7 +12,6 @@ import (
 	"github.com/docker/libnetwork/ipvs"
 	"github.com/golang/glog"
 	"k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/exec"
 )
 
@@ -179,23 +178,21 @@ func addExpectRS(expectRS map[string]lvs.RealServer, edpts []*v1.Endpoints, vs *
 	return
 }
 
-func getTargetPort(port int32, svc *v1.Service) *intstr.IntOrString {
-	var targetPort *intstr.IntOrString
-	for _, p := range svc.Spec.Ports {
-		if p.Port == port {
-			targetPort = &p.TargetPort
+func getTargetPort(port int32, svc *v1.Service) *v1.ServicePort {
+	var targetPort *v1.ServicePort
+	for i := range svc.Spec.Ports {
+		svcPort := svc.Spec.Ports[i]
+		if svcPort.Port == port {
+			targetPort = &svcPort
 			break
 		}
 	}
 	return targetPort
 }
 
-func getTargetIntPort(targetPort *intstr.IntOrString, subset *v1.EndpointSubset) int32 {
-	if targetPort.Type == intstr.Int {
-		return targetPort.IntVal
-	}
+func getTargetIntPort(targetPort *v1.ServicePort, subset *v1.EndpointSubset) int32 {
 	for _, port := range subset.Ports {
-		if port.Name == targetPort.StrVal {
+		if port.Name == targetPort.Name {
 			return port.Port
 		}
 	}
